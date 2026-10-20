@@ -121,12 +121,12 @@ struct AppState {
     float scale[3] = {1.0f, 1.0f, 1.0f};
 
     int projection = 0;
-    bool animate = false;
+    bool animate = true;
     float animSpeed = 1.0f;
-    float animRadius = 2.0f;
+    float animRadius = 1.2f;
+    float animDepth = 2.0f;
     float animPhase = 0.0f;
-    float animParam = 1.0f;
-    int trajectoryType = 0;
+    int animFreq = 2;
     bool autoRotate = true;
     bool paused = false;
 
@@ -494,12 +494,10 @@ void update(double time) {
     ImGui::SameLine();
     if (ImGui::Button(state.paused ? "Play" : "Pause")) state.paused = !state.paused;
 
-    static const char* trajectoryNames[] = { "Circle", "Ellipse", "Lissajous", "Spiral" };
-    ImGui::Combo("Trajectory", &state.trajectoryType, trajectoryNames, IM_ARRAYSIZE(trajectoryNames));
-
     ImGui::SliderFloat("Speed", &state.animSpeed, 0.1f, 5.0f);
-    ImGui::SliderFloat("Radius", &state.animRadius, 0.0f, 5.0f);
-    ImGui::SliderFloat("Param", &state.animParam, 0.1f, 4.0f);
+    ImGui::SliderFloat("Radius", &state.animRadius, 0.0f, 3.0f);
+    ImGui::SliderFloat("Depth", &state.animDepth, 0.0f, 3.0f);
+    ImGui::SliderInt("Frequency", &state.animFreq, 1, 5);
     ImGui::Checkbox("Auto-rotate", &state.autoRotate);
     ImGui::Separator();
     ImGui::ColorEdit3("Color", state.userColor);
@@ -512,29 +510,12 @@ void update(double time) {
         if (state.autoRotate) spinPhase += static_cast<float>(dt) * state.animSpeed;
     }
 
-    float animX = 0.0f, animY = 0.0f;
+    float animX = 0.0f, animY = 0.0f, animZ = 0.0f;
     if (state.animate) {
-        switch (state.trajectoryType) {
-        case 0: // Circle
-            animX = state.animRadius * std::cos(state.animPhase);
-            animY = state.animRadius * std::sin(state.animPhase);
-            break;
-        case 1: // Ellipse
-            animX = state.animRadius * std::cos(state.animPhase);
-            animY = state.animRadius * state.animParam * std::sin(state.animPhase);
-            break;
-        case 2: // Lissajous
-            animX = state.animRadius * std::sin(state.animParam * state.animPhase);
-            animY = state.animRadius * std::sin((state.animParam + 1.0f) * state.animPhase);
-            break;
-        case 3: // Spiral
-        {
-            float r = state.animRadius * state.animParam * 0.5f * (1.0f - std::cos(state.animPhase / 4.0f));
-            animX = r * std::cos(state.animPhase);
-            animY = r * std::sin(state.animPhase);
-            break;
-        }
-        }
+        float p = static_cast<float>(state.animFreq);
+        animX = state.animRadius * std::sin(p * state.animPhase);
+        animY = state.animRadius * std::sin((p + 1.0f) * state.animPhase);
+        animZ = state.animDepth * std::sin(state.animPhase);
     }
 
     float autoRotX = spinPhase * 0.5f;
@@ -542,22 +523,24 @@ void update(double time) {
     float autoRotZ = spinPhase * 0.3f;
 
     Mat4 model = identity();
-    model = multiply(model, translation(state.position[0] + animX, state.position[1] + animY, state.position[2]));
+    model = multiply(model, translation(state.position[0] + animX, state.position[1] + animY, state.position[2] + animZ));
     model = multiply(model, rotationY(state.rotation[1] * PI / 180.0f + autoRotY));
     model = multiply(model, rotationX(state.rotation[0] * PI / 180.0f + autoRotX));
     model = multiply(model, rotationZ(state.rotation[2] * PI / 180.0f + autoRotZ));
     model = multiply(model, scaling(state.scale[0], state.scale[1], state.scale[2]));
 
-    Mat4 view = translation(0.0f, 0.0f, -3.5f);
+    const float cameraDistance = 8.0f;
+    const float fovY = 45.0f * PI / 180.0f;
+    Mat4 view = translation(0.0f, 0.0f, -cameraDistance);
 
     auto& ctx = graphics::internal::context;
     float aspect = static_cast<float>(ctx.swapchain_extent.width) / static_cast<float>(ctx.swapchain_extent.height);
 
     Mat4 proj;
     if (state.projection == 0) {
-        proj = perspective(45.0f * PI / 180.0f, aspect, 0.1f, 100.0f);
+        proj = perspective(fovY, aspect, 0.1f, 100.0f);
     } else {
-        float h = 2.5f;
+        float h = cameraDistance * std::tan(fovY * 0.5f);
         float w = h * aspect;
         proj = ortho(-w, w, -h, h, 0.1f, 100.0f);
     }
